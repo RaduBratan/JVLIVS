@@ -56,17 +56,20 @@
     icons.gas_station.src = "images/gas_station.png";
     icons.truck.src = "images/truck.png";
 
+    let flowProgress = 0;  // Progress for pipe flow animation
+    let truckProgress = 0; // Progress for truck movement
     const canvas = document.getElementById("mapCanvas");
     const ctx = canvas.getContext("2d");
+    let points = [];
+    let movements = [];
+    let currentDay = 1; // Initialize with a default day or set it dynamically
 
-    // Fetch and parse CSV data for points
     async function fetchCsvData() {
       const response = await fetch('http://localhost:5000/generate-csv');
       const text = await response.text();
       return parseCsvData(text);
     }
 
-    // Parse CSV data to JSON
     function parseCsvData(csv) {
       const rows = csv.split('\n').slice(1);  // Remove header row
       const points = [];
@@ -81,14 +84,30 @@
       return points;
     }
 
-    // Fetch movements for a specific day
     async function fetchMovementsForDay(day) {
       const response = await fetch(`http://localhost:5000/generate-frontend-movements/day=${day}`);
       return response.json();
     }
 
+    async function initializeData(day) {
+      points = await fetchCsvData(); // Fetch points once
+      movements = await fetchMovementsForDay(day); // Fetch movements for the specific day once
+      updateProgress(); // Start the animation loop
+    }
+
+    function updateProgress() {
+      flowProgress += 0.001;
+      truckProgress += 0.0005;
+
+      if (flowProgress > 1) flowProgress = 0;  // Reset flow progress
+      if (truckProgress > 1) truckProgress = 0; // Reset truck progress
+
+      renderMapForDay(); // Render using stored points and movements
+
+      requestAnimationFrame(updateProgress); // Loop the animation
+    }
+
     function drawPipes(from, to) {
-      // Draw dashed line for pipes
       ctx.beginPath();
       ctx.setLineDash([5, 15]);
       ctx.moveTo(from.x, from.y);
@@ -97,8 +116,6 @@
       ctx.lineWidth = 4;
       ctx.stroke();
       ctx.setLineDash([]);
-      // Moving circles along the pipe
-      const steps = 10; // Number of circles along the pipe
       const x = from.x + (to.x - from.x) * flowProgress;
       const y = from.y + (to.y - from.y) * flowProgress;
       ctx.beginPath();
@@ -108,39 +125,29 @@
     }
 
     function drawTruckPath(from, to) {
-      // Draw solid line for truck path
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
       ctx.lineTo(to.x, to.y);
       ctx.strokeStyle = "#ff9933"; // Orange for trucks
       ctx.lineWidth = 2;
       ctx.stroke();
-      // Truck icon moving along the path
       const x = from.x + (to.x - from.x) * truckProgress;
       const y = from.y + (to.y - from.y) * truckProgress;
       if (icons.truck.complete) {
-        ctx.drawImage(icons.truck, x - 15, y - 15, 30, 30); // Draw truck icon at progress position
+        ctx.drawImage(icons.truck, x - 15, y - 15, 30, 30);
       }
     }
 
-    // Render the map using data for a specific day
-    async function renderMapForDay(day) {
-      const points = await fetchCsvData();         // All points from CSV
-      const movements = await fetchMovementsForDay(day);  // Movements for the specific day
-
+    function renderMapForDay() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      console.log("aici")
-      // Filter relevant points based on movements
       const relevantPointIds = new Set();
       movements.forEach(movement => {
         relevantPointIds.add(movement.from_id);
         relevantPointIds.add(movement.to_id);
       });
-      console.log(movements)
       const relevantPoints = points.filter(p => relevantPointIds.has(p.id));
 
-      // Draw only relevant points
       relevantPoints.forEach(point => {
         const icon = icons[point.type];
         const iconSize = 40;
@@ -151,49 +158,53 @@
 
         ctx.font = "16px Arial";
         ctx.fillStyle = "#ff00ff";
-        // ctx.fillText(point.id, point.x - 15, point.y - 15);
       });
 
-      // Draw movements
       movements.forEach(movement => {
         const from = relevantPoints.find(p => p.id === movement.from_id);
         const to = relevantPoints.find(p => p.id === movement.to_id);
 
         if (from && to) {
-          ctx.beginPath();
-          ctx.moveTo(from.x, from.y);
-          ctx.lineTo(to.x, to.y);
-          ctx.strokeStyle = movement.type === "PIPELINE" ? "#007bff" : "#ff9933";  // Blue for pipes, Orange for trucks
-          ctx.lineWidth = movement.type === "PIPELINE" ? 4 : 2;
-          if (movement.type === "-") {
-            drawPipes(from, to);
-          } else if (movement.type === "-") {
+          if (movement.type === "PIPELINE") {
+            ctx.beginPath();
+            ctx.setLineDash([5, 15]);
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.strokeStyle = "#007bff"; // Blue for pipes
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            const x = from.x + (to.x - from.x) * flowProgress;
+            const y = from.y + (to.y - from.y) * flowProgress;
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = "#007bff";
+            ctx.fill();
+          } else if (movement.type === "TRUCK") {
             drawTruckPath(from, to);
           }
-
-          ctx.stroke();
         }
       });
     }
 
-    // Fetch and render data for a user-selected day
     function fetchAndRenderDay() {
       const day = document.getElementById("dayInput").value;
       if (day < 1 || day > 41) {
         alert("Please enter a valid day between 1 and 41.");
         return;
       }
-      renderMapForDay(day);
+      currentDay = day;
+      initializeData(day); // Initialize data for the selected day
     }
 
-    // Wait for icons to load before enabling user input
     Promise.all([
       new Promise(resolve => icons.refinery.onload = resolve),
       new Promise(resolve => icons.tank.onload = resolve),
       new Promise(resolve => icons.gas_station.onload = resolve),
       new Promise(resolve => icons.truck.onload = resolve)
-    ]);
-
+    ]).then(() => {
+      initializeData(currentDay);
+    });
   </script>
 </body>
 
