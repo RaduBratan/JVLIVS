@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamic Map Visualization</title>
+<style>
+    body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+    }
+    canvas {
+        border: 1px solid #333;
+    }
+</style>
+</head>
+<body>
+<canvas id="mapCanvas" width="800" height="600"></canvas>
+
+<script>
+// Fetch and parse CSV data
+async function fetchCsvData() {
+    const response = await fetch('http://localhost:5000/generate-csv');
+    const text = await response.text();
+    return parseCsvData(text);
+}
+
+// Parse CSV data to JSON
+function parseCsvData(csv) {
+    const rows = csv.split('\n').slice(1);  // Remove header row
+    const points = [];
+    const movements = [];
+
+    rows.forEach(row => {
+        const [id, type, x, y, from_id, to_id, lead_time_days, amount] = row.split(',');
+
+        if (id) {
+            points.push({ id, type, x: parseFloat(x), y: parseFloat(y) });
+        } else if (from_id && to_id) {
+            movements.push({ from_id, to_id, lead_time_days: parseInt(lead_time_days), amount: parseInt(amount) });
+        }
+    });
+
+    return { points, movements };
+}
+
+// Load icons
+const icons = {
+    refinery: new Image(),
+    tank: new Image(),
+    gas_station: new Image(),
+    truck: new Image()
+};
+
+icons.refinery.src = "images/refinery.png";
+icons.tank.src = "images/tank.png";
+icons.gas_station.src = "images/gas_station.png";
+icons.truck.src = "images/truck.png";
+
+const canvas = document.getElementById("mapCanvas");
+const ctx = canvas.getContext("2d");
+
+// Render the map using CSV data
+async function renderMap() {
+    const data = await fetchCsvData();
+    const points = data.points;
+    const movements = data.movements;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw points (refineries, tanks, gas stations)
+    points.forEach(point => {
+        const icon = icons[point.type];
+        const iconSize = 40;
+
+        if (icon.complete) {
+            ctx.drawImage(icon, point.x - iconSize / 2, point.y - iconSize / 2, iconSize, iconSize);
+        }
+
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#ff00ff";
+        // ctx.fillText(point.id, point.x - 15, point.y - 15);
+    });
+
+    // Draw movements (pipes, trucks)
+    movements.forEach(movement => {
+        const from = points.find(p => p.id === movement.from_id);
+        const to = points.find(p => p.id === movement.to_id);
+
+        if (from && to) {
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.strokeStyle = movement.type === "pipe" ? "#007bff" : "#ff9933";
+            ctx.lineWidth = movement.type === "pipe" ? 4 : 2;
+            ctx.stroke();
+
+            // Display amount near the line
+            ctx.font = "12px Arial";
+            ctx.fillStyle = "#000";
+            // ctx.fillText(Amount: ${movement.amount}, (from.x + to.x) / 2, (from.y + to.y) / 2);
+        }
+    });
+}
+
+// Wait for icons to load before rendering
+Promise.all([
+    new Promise(resolve => icons.refinery.onload = resolve),
+    new Promise(resolve => icons.tank.onload = resolve),
+    new Promise(resolve => icons.gas_station.onload = resolve),
+    new Promise(resolve => icons.truck.onload = resolve)
+]).then(renderMap);
+
+</script>
+</body>
+</html>

@@ -13,6 +13,11 @@ from datetime import datetime, timedelta
 import json
 from pprint import pp
 import networkx as nx
+import time
+from flask import Flask, send_file, jsonify
+from flask_cors import CORS
+import os
+import csv
 
 
 ##################
@@ -26,6 +31,12 @@ REFINERIES_PATH = ROOT_PATH + "/refineries.csv"
 TANKS_PATH = ROOT_PATH + "/tanks.csv"
 TEAMS_PATH = ROOT_PATH + "/teams.csv"
 
+CSV_PATH = "./static"
+CSV_FILENAME = "map_data.csv"
+
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)
 
 ################
 # Define Classes
@@ -101,6 +112,8 @@ class Refinery(Node):
         self.initial_stock = initial_stock
         self.stock = initial_stock
         self.node_type = node_type
+        self.x = random.randint(50,750) 
+        self.y = 50
 
         assert (
             self.node_type == NodeType.REFINERY
@@ -135,6 +148,8 @@ class StorageTank(Node):
         self.initial_stock = initial_stock
         self.stock = initial_stock
         self.node_type = node_type
+        self.x = random.randint(50,750) 
+        self.y = 200
 
         assert (
             self.node_type == NodeType.STORAGE_TANK
@@ -161,6 +176,8 @@ class Customer(Node):
         self.early_delivery_penalty = early_delivery_penalty
         self.node_type = node_type
         self.stock = 0
+        self.x = random.randint(50,750) 
+        self.y = 500 
 
         assert (
             self.node_type == NodeType.CUSTOMER
@@ -360,8 +377,34 @@ class Extractor:
     def post_connection_info(self) -> str:
         json_string = json.dumps(self.data_store["json_list"], indent=4)
         return json_string
+    
+     # Generate map data CSV for visualization
+    def generate_map_csv(self):
+        os.makedirs(CSV_PATH, exist_ok=True)
+        filename = os.path.join(CSV_PATH, CSV_FILENAME)
+        with open(filename, mode="w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["id", "type", "x", "y", "from_id", "to_id", "lead_time_days", "amount"])
+            # Write points (refineries, tanks, customers)
+            for node in self.data_store["nodes_map"].values():
+                node_type = "refinery" if isinstance(node, Refinery) else \
+                            "tank" if isinstance(node, StorageTank) else "gas_station"
+                writer.writerow([node.id, node_type, node.x, node.y, "", "", "", ""])
+            # Write movements (connections)
+            for connection in self.data_store["connections_map"].values():
+                writer.writerow(["", "", "", "", connection.from_id, connection.to_id, connection.lead_time_days, connection.max_capacity])
+        return filename
+
+@app.route('/generate-csv', methods=['GET'])
+def generate_csv():
+    """
+    Endpoint to generate and serve the CSV file.
+    """
+    filename = simple_api.generate_map_csv()
+    return send_file(filename, as_attachment=True)
 
 
+frontend_movements_per_day = {}
 class SolutionAPI:
     BASE_URL = "http://localhost:8080/api/v1"
     START_URL = BASE_URL + "/session/start"
@@ -376,6 +419,7 @@ class SolutionAPI:
         self.connections_map = api.data_store["connections_map"]
         self.demands = api.data_store["demands"]
         self.current_day = 0
+        self.frontend_movements_per_day = {}
         self.movements_plan = (
             {}
         )  # Movements scheduled (key: day, value: list of movements)
@@ -420,6 +464,17 @@ class SolutionAPI:
             logging.debug(f"Headers: {headers}\n")
             return None
 
+    @app.route('/generate-frontend-movements/day=<int:day>', methods=['GET'])
+    def generate_frontend_movements(day):
+        """
+        Endpoint to retrieve movements for a specific day.
+        """
+        # Check if data exists for the given day
+        if day in frontend_movements_per_day:
+            return jsonify(frontend_movements_per_day[day])  # Return data as JSON response
+        else:
+            return jsonify({"error": "Data not found for specified day"}), 404  # Return 404 if not found
+
     def send_play_status(
         self,
         session_id,
@@ -435,6 +490,10 @@ class SolutionAPI:
         }
         # Prepare the payload with an empty movement for the first request
         delivery_data = {"day": day, "movements": movements}
+        frontend_movements = [{'from_id': self.connections_map[movement["connectionId"]].from_id,
+                                'to_id': self.connections_map[movement["connectionId"]].to_id,
+                                'lead_time_days': self.connections_map[movement["connectionId"]].lead_time_days} for movement in movements]
+        frontend_movements_per_day[day] = frontend_movements
         try:
             response = requests.post(api_url, json=delivery_data, headers=headers)
             response.raise_for_status()  # Raise an error for bad responses
@@ -685,7 +744,8 @@ class SolutionAPI:
         """
         Plan movements for the current day, ensuring that:
         - No penalties are incurred at the end of the day.
-        - Movements are scheduled only to prevent refinery overflows.
+        - Movements are scheduled to prevent refinery overflows.
+        - Movements are scheduled to fulfill customer demands.
         - Movements are only scheduled if they can be executed without causing penalties.
         """
         movements = []
@@ -774,8 +834,85 @@ class SolutionAPI:
                     # Set stock to capacity to prevent further penalties
                     node.stock = node.capacity
 
-        # No further movements to be scheduled to avoid penalties
+        # Now, plan movements to fulfill customer demands
+        # First, get demands that need to be fulfilled
+        demands_to_fulfill = []
+        for demand in self.pending_demands:
+            # Calculate the earliest possible arrival day considering lead times
+            customer = self.nodes_map[demand.customer_id]
+            min_lead_time = self.get_min_lead_time(customer)
+            earliest_arrival_day = self.current_day + min_lead_time
+
+            # Check if the demand can be delivered within its delivery window
+            if demand.start_delivery_day <= earliest_arrival_day <= demand.end_delivery_day:
+                demands_to_fulfill.append(demand)
+
+        # For each demand, plan movements from sources to customer
+        for demand in demands_to_fulfill:
+            customer = self.nodes_map[demand.customer_id]
+            remaining_quantity = demand.remaining_quantity
+
+            # Find possible sources
+            possible_sources = []
+            for node in self.nodes_map.values():
+                if isinstance(node, (Refinery, StorageTank)) and node.stock > 0:
+                    # Check if there's a connection to the customer
+                    for neighbour, connection in zip(node.neighbours, node.connections):
+                        if neighbour.id == customer.id:
+                            possible_sources.append((node, connection))
+
+            # Sort possible sources by lead time (shortest first)
+            possible_sources.sort(key=lambda x: x[1].lead_time_days)
+
+            for source_node, connection in possible_sources:
+                if remaining_quantity <= 0:
+                    break
+
+                # Calculate available capacities
+                connection_available_capacity = connection.max_capacity - connection_in_transit.get(connection.id, 0)
+                source_available_output = getattr(source_node, 'max_output', float('inf')) - node_daily_outputs.get(source_node.id, 0)
+                customer_available_input = customer.max_input - node_daily_inputs.get(customer.id, 0)
+                source_stock = source_node.stock
+
+                amount_to_move = min(
+                    remaining_quantity,
+                    connection_available_capacity,
+                    source_available_output,
+                    customer_available_input,
+                    source_stock
+                )
+
+                if amount_to_move <= 0:
+                    continue  # Cannot move any amount
+
+                # Create movement
+                movement = {"connectionId": connection.id, "amount": amount_to_move}
+                movements.append(movement)
+
+                # Update tracking dictionaries
+                node_daily_outputs[source_node.id] = node_daily_outputs.get(source_node.id, 0) + amount_to_move
+                node_daily_inputs[customer.id] = node_daily_inputs.get(customer.id, 0) + amount_to_move
+                connection_in_transit[connection.id] = connection_in_transit.get(connection.id, 0) + amount_to_move
+
+                # Schedule arrival
+                arrival_day = self.current_day + connection.lead_time_days
+                self.in_transit_movements.append({
+                    "from_id": source_node.id,
+                    "to_id": customer.id,
+                    "amount": amount_to_move,
+                    "arrival_day": arrival_day
+                })
+
+                # Update stocks
+                source_node.stock -= amount_to_move
+                remaining_quantity -= amount_to_move
+                demand.remaining_quantity -= amount_to_move
+
+        # Remove demands that have been fully fulfilled
+        self.pending_demands = [d for d in self.pending_demands if d.remaining_quantity > 0]
+
         return movements
+
 
 
     def optimize(self):
@@ -797,7 +934,9 @@ class SolutionAPI:
             self.send_play_status(self.session_id, self.current_day, movements)
 
             # Update internal state for next day
-            self.update_internal_state(movements)                
+            self.update_internal_state(movements) 
+
+            # time.sleep(5)               
 
     # Main simulation loop
     def run_simulation(self):
@@ -818,3 +957,4 @@ if __name__ == "__main__":
     radu_api = SolutionAPI(simple_api)
     logging.basicConfig(level=logging.DEBUG)
     radu_api.run_simulation()
+    app.run(port=5000, debug=True)
