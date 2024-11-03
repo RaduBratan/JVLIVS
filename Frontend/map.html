@@ -1,152 +1,200 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gas Station and Tank Connections Map by Day</title>
-<style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gas Station and Tank Connections Map by Day</title>
+  <style>
     body {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        margin: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
     }
+
     canvas {
-        border: 1px solid #333;
-        margin-top: 20px;
+      border: 1px solid #333;
+      margin-top: 20px;
     }
+
     #controls {
-        display: flex;
-        justify-content: center;
-        align-items: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
+
     #dayInput {
-        margin-right: 10px;
-        padding: 5px;
+      margin-right: 10px;
+      padding: 5px;
     }
-</style>
+  </style>
 </head>
+
 <body>
 
-<div id="controls">
+  <div id="controls">
     <input type="number" id="dayInput" min="1" max="41" placeholder="Enter day (1-41)">
     <button onclick="fetchAndRenderDay()">Show Movements</button>
-</div>
+  </div>
 
-<canvas id="mapCanvas" width="800" height="600"></canvas>
+  <canvas id="mapCanvas" width="800" height="600"></canvas>
 
-<script>
-// Load icons
-const icons = {
-    refinery: new Image(),
-    tank: new Image(),
-    gas_station: new Image(),
-    truck: new Image()
-};
+  <script>
+    // Load icons
+    const icons = {
+      refinery: new Image(),
+      tank: new Image(),
+      gas_station: new Image(),
+      truck: new Image()
+    };
 
-icons.refinery.src = "images/refinery.png";
-icons.tank.src = "images/tank.png";
-icons.gas_station.src = "images/gas_station.png";
-icons.truck.src = "images/truck.png";
+    icons.refinery.src = "images/refinery.png";
+    icons.tank.src = "images/tank.png";
+    icons.gas_station.src = "images/gas_station.png";
+    icons.truck.src = "images/truck.png";
 
-const canvas = document.getElementById("mapCanvas");
-const ctx = canvas.getContext("2d");
+    const canvas = document.getElementById("mapCanvas");
+    const ctx = canvas.getContext("2d");
 
-// Fetch and parse CSV data for points
-async function fetchCsvData() {
-    const response = await fetch('http://localhost:5000/generate-csv');
-    const text = await response.text();
-    return parseCsvData(text);
-}
+    // Fetch and parse CSV data for points
+    async function fetchCsvData() {
+      const response = await fetch('http://localhost:5000/generate-csv');
+      const text = await response.text();
+      return parseCsvData(text);
+    }
 
-// Parse CSV data to JSON
-function parseCsvData(csv) {
-    const rows = csv.split('\n').slice(1);  // Remove header row
-    const points = [];
+    // Parse CSV data to JSON
+    function parseCsvData(csv) {
+      const rows = csv.split('\n').slice(1);  // Remove header row
+      const points = [];
 
-    rows.forEach(row => {
+      rows.forEach(row => {
         const [id, type, x, y] = row.split(',');
         if (id) {
-            points.push({ id, type, x: parseFloat(x), y: parseFloat(y) });
+          points.push({ id, type, x: parseFloat(x), y: parseFloat(y) });
         }
-    });
+      });
 
-    return points;
-}
+      return points;
+    }
 
-// Fetch movements for a specific day
-async function fetchMovementsForDay(day) {
-    const response = await fetch(`http://localhost:5000/generate-frontend-movements/day=${day}`);
-    return response.json();
-}
+    // Fetch movements for a specific day
+    async function fetchMovementsForDay(day) {
+      const response = await fetch(`http://localhost:5000/generate-frontend-movements/day=${day}`);
+      return response.json();
+    }
 
-// Render the map using data for a specific day
-async function renderMapForDay(day) {
-    const points = await fetchCsvData();         // All points from CSV
-    const movements = await fetchMovementsForDay(day);  // Movements for the specific day
+    function drawPipes(from, to) {
+      // Draw dashed line for pipes
+      ctx.beginPath();
+      ctx.setLineDash([5, 15]);
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.strokeStyle = "#007bff"; // Blue for pipes
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Moving circles along the pipe
+      const steps = 10; // Number of circles along the pipe
+      const x = from.x + (to.x - from.x) * flowProgress;
+      const y = from.y + (to.y - from.y) * flowProgress;
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = "#007bff";
+      ctx.fill();
+    }
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    function drawTruckPath(from, to) {
+      // Draw solid line for truck path
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.strokeStyle = "#ff9933"; // Orange for trucks
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Truck icon moving along the path
+      const x = from.x + (to.x - from.x) * truckProgress;
+      const y = from.y + (to.y - from.y) * truckProgress;
+      if (icons.truck.complete) {
+        ctx.drawImage(icons.truck, x - 15, y - 15, 30, 30); // Draw truck icon at progress position
+      }
+    }
 
-    console.log("aici")
-    // Filter relevant points based on movements
-    const relevantPointIds = new Set();
-    movements.forEach(movement => {
+    // Render the map using data for a specific day
+    async function renderMapForDay(day) {
+      const points = await fetchCsvData();         // All points from CSV
+      const movements = await fetchMovementsForDay(day);  // Movements for the specific day
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      console.log("aici")
+      // Filter relevant points based on movements
+      const relevantPointIds = new Set();
+      movements.forEach(movement => {
         relevantPointIds.add(movement.from_id);
         relevantPointIds.add(movement.to_id);
-    });
-    console.log(movements)
-    const relevantPoints = points.filter(p => relevantPointIds.has(p.id));
+      });
+      console.log(movements)
+      const relevantPoints = points.filter(p => relevantPointIds.has(p.id));
 
-    // Draw only relevant points
-    relevantPoints.forEach(point => {
+      // Draw only relevant points
+      relevantPoints.forEach(point => {
         const icon = icons[point.type];
         const iconSize = 40;
 
         if (icon.complete) {
-            ctx.drawImage(icon, point.x - iconSize / 2, point.y - iconSize / 2, iconSize, iconSize);
+          ctx.drawImage(icon, point.x - iconSize / 2, point.y - iconSize / 2, iconSize, iconSize);
         }
 
         ctx.font = "16px Arial";
         ctx.fillStyle = "#ff00ff";
-        ctx.fillText(point.id, point.x - 15, point.y - 15);
-    });
+        // ctx.fillText(point.id, point.x - 15, point.y - 15);
+      });
 
-    // Draw movements
-    movements.forEach(movement => {
+      // Draw movements
+      movements.forEach(movement => {
         const from = relevantPoints.find(p => p.id === movement.from_id);
         const to = relevantPoints.find(p => p.id === movement.to_id);
 
         if (from && to) {
-            ctx.beginPath();
-            ctx.moveTo(from.x, from.y);
-            ctx.lineTo(to.x, to.y);
-            ctx.strokeStyle = movement.type === "pipe" ? "#007bff" : "#ff9933";  // Blue for pipes, Orange for trucks
-            ctx.lineWidth = movement.type === "pipe" ? 4 : 2;
-            ctx.stroke();
-        }
-    });
-}
+          ctx.beginPath();
+          ctx.moveTo(from.x, from.y);
+          ctx.lineTo(to.x, to.y);
+          ctx.strokeStyle = movement.type === "PIPELINE" ? "#007bff" : "#ff9933";  // Blue for pipes, Orange for trucks
+          ctx.lineWidth = movement.type === "PIPELINE" ? 4 : 2;
+          if (movement.type === "-") {
+            drawPipes(from, to);
+          } else if (movement.type === "-") {
+            drawTruckPath(from, to);
+          }
 
-// Fetch and render data for a user-selected day
-function fetchAndRenderDay() {
-    const day = document.getElementById("dayInput").value;
-    if (day < 1 || day > 41) {
+          ctx.stroke();
+        }
+      });
+    }
+
+    // Fetch and render data for a user-selected day
+    function fetchAndRenderDay() {
+      const day = document.getElementById("dayInput").value;
+      if (day < 1 || day > 41) {
         alert("Please enter a valid day between 1 and 41.");
         return;
+      }
+      renderMapForDay(day);
     }
-    renderMapForDay(day);
-}
 
-// Wait for icons to load before enabling user input
-Promise.all([
-    new Promise(resolve => icons.refinery.onload = resolve),
-    new Promise(resolve => icons.tank.onload = resolve),
-    new Promise(resolve => icons.gas_station.onload = resolve),
-    new Promise(resolve => icons.truck.onload = resolve)
-]);
+    // Wait for icons to load before enabling user input
+    Promise.all([
+      new Promise(resolve => icons.refinery.onload = resolve),
+      new Promise(resolve => icons.tank.onload = resolve),
+      new Promise(resolve => icons.gas_station.onload = resolve),
+      new Promise(resolve => icons.truck.onload = resolve)
+    ]);
 
-</script>
+  </script>
 </body>
+
 </html>

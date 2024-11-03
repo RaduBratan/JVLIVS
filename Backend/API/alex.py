@@ -38,6 +38,7 @@ CSV_FILENAME = "map_data.csv"
 app = Flask(__name__)
 CORS(app)
 
+
 ################
 # Define Classes
 ################
@@ -112,7 +113,7 @@ class Refinery(Node):
         self.initial_stock = initial_stock
         self.stock = initial_stock
         self.node_type = node_type
-        self.x = random.randint(50,750) 
+        self.x = random.randint(50, 750)
         self.y = 50
 
         assert (
@@ -148,7 +149,7 @@ class StorageTank(Node):
         self.initial_stock = initial_stock
         self.stock = initial_stock
         self.node_type = node_type
-        self.x = random.randint(50,750) 
+        self.x = random.randint(50, 750)
         self.y = 200
 
         assert (
@@ -176,8 +177,8 @@ class Customer(Node):
         self.early_delivery_penalty = early_delivery_penalty
         self.node_type = node_type
         self.stock = 0
-        self.x = random.randint(50,750) 
-        self.y = 500 
+        self.x = random.randint(50, 750)
+        self.y = 500
 
         assert (
             self.node_type == NodeType.CUSTOMER
@@ -377,25 +378,42 @@ class Extractor:
     def post_connection_info(self) -> str:
         json_string = json.dumps(self.data_store["json_list"], indent=4)
         return json_string
-    
-     # Generate map data CSV for visualization
+
+    # Generate map data CSV for visualization
     def generate_map_csv(self):
         os.makedirs(CSV_PATH, exist_ok=True)
         filename = os.path.join(CSV_PATH, CSV_FILENAME)
         with open(filename, mode="w", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow(["id", "type", "x", "y", "from_id", "to_id", "lead_time_days", "amount"])
+            writer.writerow(
+                ["id", "type", "x", "y", "from_id", "to_id", "lead_time_days", "amount"]
+            )
             # Write points (refineries, tanks, customers)
             for node in self.data_store["nodes_map"].values():
-                node_type = "refinery" if isinstance(node, Refinery) else \
-                            "tank" if isinstance(node, StorageTank) else "gas_station"
+                node_type = (
+                    "refinery"
+                    if isinstance(node, Refinery)
+                    else "tank" if isinstance(node, StorageTank) else "gas_station"
+                )
                 writer.writerow([node.id, node_type, node.x, node.y, "", "", "", ""])
             # Write movements (connections)
             for connection in self.data_store["connections_map"].values():
-                writer.writerow(["", "", "", "", connection.from_id, connection.to_id, connection.lead_time_days, connection.max_capacity])
+                writer.writerow(
+                    [
+                        "",
+                        "",
+                        "",
+                        "",
+                        connection.from_id,
+                        connection.to_id,
+                        connection.lead_time_days,
+                        connection.max_capacity,
+                    ]
+                )
         return filename
 
-@app.route('/generate-csv', methods=['GET'])
+
+@app.route("/generate-csv", methods=["GET"])
 def generate_csv():
     """
     Endpoint to generate and serve the CSV file.
@@ -405,6 +423,8 @@ def generate_csv():
 
 
 frontend_movements_per_day = {}
+
+
 class SolutionAPI:
     BASE_URL = "http://localhost:8080/api/v1"
     START_URL = BASE_URL + "/session/start"
@@ -464,16 +484,21 @@ class SolutionAPI:
             logging.debug(f"Headers: {headers}\n")
             return None
 
-    @app.route('/generate-frontend-movements/day=<int:day>', methods=['GET'])
+    @app.route("/generate-frontend-movements/day=<int:day>", methods=["GET"])
     def generate_frontend_movements(day):
         """
         Endpoint to retrieve movements for a specific day.
         """
         # Check if data exists for the given day
         if day in frontend_movements_per_day:
-            return jsonify(frontend_movements_per_day[day])  # Return data as JSON response
+            return jsonify(
+                frontend_movements_per_day[day]
+            )  # Return data as JSON response
         else:
-            return jsonify({"error": "Data not found for specified day"}), 404  # Return 404 if not found
+            return (
+                jsonify({"error": "Data not found for specified day"}),
+                404,
+            )  # Return 404 if not found
 
     def send_play_status(
         self,
@@ -490,16 +515,26 @@ class SolutionAPI:
         }
         # Prepare the payload with an empty movement for the first request
         delivery_data = {"day": day, "movements": movements}
-        frontend_movements = [{'from_id': self.connections_map[movement["connectionId"]].from_id,
-                                'to_id': self.connections_map[movement["connectionId"]].to_id,
-                                'lead_time_days': self.connections_map[movement["connectionId"]].lead_time_days} for movement in movements]
+        frontend_movements = [
+            {
+                "from_id": self.connections_map[movement["connectionId"]].from_id,
+                "to_id": self.connections_map[movement["connectionId"]].to_id,
+                "lead_time_days": self.connections_map[
+                    movement["connectionId"]
+                ].lead_time_days,
+                "type": 
+                    self.connections_map[movement["connectionId"]].connection_type
+                ,
+            }
+            for movement in movements
+        ]
         frontend_movements_per_day[day] = frontend_movements
         try:
             response = requests.post(api_url, json=delivery_data, headers=headers)
             response.raise_for_status()  # Raise an error for bad responses
             logging.info("Delivery status sent successfully.")
 
-            if (day == self.NUMBER_OF_DAYS - 1):
+            if day == self.NUMBER_OF_DAYS - 1:
                 print("TOTAL KPIS: ", response.json())
                 total_cost = response.json()["totalKpis"]["cost"]
                 total_co2 = response.json()["totalKpis"]["co2"]
@@ -590,13 +625,13 @@ class SolutionAPI:
         """
         Returns the minimum lead time from any source to the customer.
         """
-        min_lead_time = float('inf')
+        min_lead_time = float("inf")
         for node in self.nodes_map.values():
             for neighbour, connection in zip(node.neighbours, node.connections):
                 if neighbour.id == customer.id:
                     if connection.lead_time_days < min_lead_time:
                         min_lead_time = connection.lead_time_days
-        return min_lead_time if min_lead_time != float('inf') else 0
+        return min_lead_time if min_lead_time != float("inf") else 0
 
     def maximum_flow(self, G, source, sink):
         """
@@ -604,10 +639,14 @@ class SolutionAPI:
         """
 
         # Use Edmonds-Karp algorithm for maximum flow
-        max_flow_value, flow_dict = nx.maximum_flow(G, source, sink, flow_func=nx.algorithms.flow.edmonds_karp)
+        max_flow_value, flow_dict = nx.maximum_flow(
+            G, source, sink, flow_func=nx.algorithms.flow.edmonds_karp
+        )
         return max_flow_value, flow_dict
 
-    def flow_to_movements(self, flow_dict, node_daily_outputs, node_daily_inputs, connection_in_transit):
+    def flow_to_movements(
+        self, flow_dict, node_daily_outputs, node_daily_inputs, connection_in_transit
+    ):
         """
         Converts the flow dictionary into a list of movements, considering capacities and constraints.
         """
@@ -615,10 +654,10 @@ class SolutionAPI:
 
         # Iterate over the flow_dict to create movements
         for from_node_id, to_nodes in flow_dict.items():
-            if from_node_id in ['source', 'sink']:
+            if from_node_id in ["source", "sink"]:
                 continue
             for to_node_id, flow_amount in to_nodes.items():
-                if flow_amount > 0 and to_node_id not in ['source', 'sink']:
+                if flow_amount > 0 and to_node_id not in ["source", "sink"]:
                     connection_id = self.get_connection_id(from_node_id, to_node_id)
                     if connection_id is None:
                         continue  # Invalid connection
@@ -628,26 +667,41 @@ class SolutionAPI:
                     to_node = self.nodes_map[to_node_id]
 
                     # Check capacities and constraints
-                    available_output = getattr(from_node, 'max_output', float('inf')) - node_daily_outputs.get(from_node_id, 0)
-                    available_input = getattr(to_node, 'max_input', float('inf')) - node_daily_inputs.get(to_node_id, 0)
-                    to_node_available_capacity = getattr(to_node, 'capacity', float('inf')) - to_node.stock
-                    conn_available_capacity = connection.max_capacity - connection_in_transit.get(connection_id, 0)
+                    available_output = getattr(
+                        from_node, "max_output", float("inf")
+                    ) - node_daily_outputs.get(from_node_id, 0)
+                    available_input = getattr(
+                        to_node, "max_input", float("inf")
+                    ) - node_daily_inputs.get(to_node_id, 0)
+                    to_node_available_capacity = (
+                        getattr(to_node, "capacity", float("inf")) - to_node.stock
+                    )
+                    conn_available_capacity = (
+                        connection.max_capacity
+                        - connection_in_transit.get(connection_id, 0)
+                    )
 
                     amount_to_move = min(
                         flow_amount,
                         available_output,
                         available_input,
                         to_node_available_capacity,
-                        conn_available_capacity
+                        conn_available_capacity,
                     )
 
                     if amount_to_move <= 0:
                         continue  # Cannot move any amount without violating constraints
 
                     # Update tracking dictionaries
-                    node_daily_outputs[from_node_id] = node_daily_outputs.get(from_node_id, 0) + amount_to_move
-                    node_daily_inputs[to_node_id] = node_daily_inputs.get(to_node_id, 0) + amount_to_move
-                    connection_in_transit[connection_id] = connection_in_transit.get(connection_id, 0) + amount_to_move
+                    node_daily_outputs[from_node_id] = (
+                        node_daily_outputs.get(from_node_id, 0) + amount_to_move
+                    )
+                    node_daily_inputs[to_node_id] = (
+                        node_daily_inputs.get(to_node_id, 0) + amount_to_move
+                    )
+                    connection_in_transit[connection_id] = (
+                        connection_in_transit.get(connection_id, 0) + amount_to_move
+                    )
 
                     # Create movement
                     movement = {"connectionId": connection_id, "amount": amount_to_move}
@@ -655,19 +709,23 @@ class SolutionAPI:
 
                     # Schedule arrival
                     arrival_day = self.current_day + connection.lead_time_days
-                    self.in_transit_movements.append({
-                        "from_id": from_node_id,
-                        "to_id": to_node_id,
-                        "amount": amount_to_move,
-                        "arrival_day": arrival_day
-                    })
+                    self.in_transit_movements.append(
+                        {
+                            "from_id": from_node_id,
+                            "to_id": to_node_id,
+                            "amount": amount_to_move,
+                            "arrival_day": arrival_day,
+                        }
+                    )
 
                     # Update stocks
                     from_node.stock -= amount_to_move
 
         return movements
 
-    def build_flow_network(self, connection_in_transit, node_daily_outputs, node_daily_inputs):
+    def build_flow_network(
+        self, connection_in_transit, node_daily_outputs, node_daily_inputs
+    ):
         """
         Builds a flow network for the maximum flow algorithm, incorporating storage tanks.
         """
@@ -676,8 +734,8 @@ class SolutionAPI:
         G = nx.DiGraph()
 
         # Add nodes
-        G.add_node('source')
-        G.add_node('sink')
+        G.add_node("source")
+        G.add_node("sink")
         for node in self.nodes_map.values():
             G.add_node(node.id)
 
@@ -687,30 +745,41 @@ class SolutionAPI:
             refinery.stock += refinery.production
 
             # Calculate available output capacity
-            available_output = refinery.max_output - node_daily_outputs.get(refinery.id, 0)
+            available_output = refinery.max_output - node_daily_outputs.get(
+                refinery.id, 0
+            )
             # Capacity is the minimum of available output and available stock
             available_stock = refinery.stock
             capacity = min(available_output, available_stock)
             if capacity > 0:
-                G.add_edge('source', refinery.id, capacity=capacity)
+                G.add_edge("source", refinery.id, capacity=capacity)
 
         # Add edges between nodes (refineries, storage tanks, customers)
         for node in self.nodes_map.values():
             for neighbour, connection in zip(node.neighbours, node.connections):
                 # Calculate available capacities
-                conn_available_capacity = connection.max_capacity - connection_in_transit.get(connection.id, 0)
+                conn_available_capacity = (
+                    connection.max_capacity
+                    - connection_in_transit.get(connection.id, 0)
+                )
                 if conn_available_capacity <= 0:
                     continue  # No capacity left on connection
 
-                node_available_output = getattr(node, 'max_output', float('inf')) - node_daily_outputs.get(node.id, 0)
-                neighbour_available_input = getattr(neighbour, 'max_input', float('inf')) - node_daily_inputs.get(neighbour.id, 0)
-                neighbour_available_capacity = getattr(neighbour, 'capacity', float('inf')) - neighbour.stock
+                node_available_output = getattr(
+                    node, "max_output", float("inf")
+                ) - node_daily_outputs.get(node.id, 0)
+                neighbour_available_input = getattr(
+                    neighbour, "max_input", float("inf")
+                ) - node_daily_inputs.get(neighbour.id, 0)
+                neighbour_available_capacity = (
+                    getattr(neighbour, "capacity", float("inf")) - neighbour.stock
+                )
 
                 capacity = min(
                     conn_available_capacity,
                     node_available_output,
                     neighbour_available_input,
-                    neighbour_available_capacity
+                    neighbour_available_capacity,
                 )
                 if capacity > 0:
                     G.add_edge(node.id, neighbour.id, capacity=capacity)
@@ -719,12 +788,15 @@ class SolutionAPI:
         for customer in [n for n in self.nodes_map.values() if isinstance(n, Customer)]:
             # Demand is sum of remaining quantities for the customer within delivery window
             total_demand = sum(
-                d.remaining_quantity for d in self.pending_demands
-                if d.customer_id == customer.id and
-                d.start_delivery_day <= self.current_day + self.get_min_lead_time(customer) <= d.end_delivery_day
+                d.remaining_quantity
+                for d in self.pending_demands
+                if d.customer_id == customer.id
+                and d.start_delivery_day
+                <= self.current_day + self.get_min_lead_time(customer)
+                <= d.end_delivery_day
             )
             if total_demand > 0:
-                G.add_edge(customer.id, 'sink', capacity=total_demand)
+                G.add_edge(customer.id, "sink", capacity=total_demand)
 
         return G
 
@@ -748,21 +820,29 @@ class SolutionAPI:
         movements = []
 
         # Initialize tracking dictionaries
-        node_daily_outputs = {}  # Key: node ID, Value: total output scheduled for the day
-        node_daily_inputs = {}   # Key: node ID, Value: total input scheduled for the day
+        node_daily_outputs = (
+            {}
+        )  # Key: node ID, Value: total output scheduled for the day
+        node_daily_inputs = {}  # Key: node ID, Value: total input scheduled for the day
         connection_in_transit = {}  # Key: connection ID, Value: total amount in transit
 
         # Update with existing in-transit movements
         for movement in self.in_transit_movements:
             from_id = movement["from_id"]
-            node_daily_outputs[from_id] = node_daily_outputs.get(from_id, 0) + movement["amount"]
+            node_daily_outputs[from_id] = (
+                node_daily_outputs.get(from_id, 0) + movement["amount"]
+            )
 
             to_id = movement["to_id"]
-            node_daily_inputs[to_id] = node_daily_inputs.get(to_id, 0) + movement["amount"]
+            node_daily_inputs[to_id] = (
+                node_daily_inputs.get(to_id, 0) + movement["amount"]
+            )
 
             connection_id = self.get_connection_id(from_id, to_id)
             if connection_id:
-                connection_in_transit[connection_id] = connection_in_transit.get(connection_id, 0) + movement["amount"]
+                connection_in_transit[connection_id] = (
+                    connection_in_transit.get(connection_id, 0) + movement["amount"]
+                )
 
         # Process refineries to prevent overflows
         for node in self.nodes_map.values():
@@ -777,16 +857,25 @@ class SolutionAPI:
                     # Attempt to move overflow to connected storage tanks
                     possible_tanks = [
                         (neighbour, connection)
-                        for neighbour, connection in zip(node.neighbours, node.connections)
+                        for neighbour, connection in zip(
+                            node.neighbours, node.connections
+                        )
                         if isinstance(neighbour, StorageTank)
                     ]
 
                     for tank, connection in possible_tanks:
                         # Calculate available capacities
                         tank_available_capacity = tank.capacity - tank.stock
-                        connection_available_capacity = connection.max_capacity - connection_in_transit.get(connection.id, 0)
-                        node_available_output = node.max_output - node_daily_outputs.get(node.id, 0)
-                        tank_available_input = tank.max_input - node_daily_inputs.get(tank.id, 0)
+                        connection_available_capacity = (
+                            connection.max_capacity
+                            - connection_in_transit.get(connection.id, 0)
+                        )
+                        node_available_output = (
+                            node.max_output - node_daily_outputs.get(node.id, 0)
+                        )
+                        tank_available_input = tank.max_input - node_daily_inputs.get(
+                            tank.id, 0
+                        )
 
                         # Determine the maximum amount we can move without causing penalties
                         amount_to_move = min(
@@ -794,29 +883,40 @@ class SolutionAPI:
                             tank_available_capacity,
                             connection_available_capacity,
                             node_available_output,
-                            tank_available_input
+                            tank_available_input,
                         )
 
                         if amount_to_move <= 0:
                             continue  # Cannot move any amount without causing penalties
 
                         # Create movement
-                        movement = {"connectionId": connection.id, "amount": amount_to_move}
+                        movement = {
+                            "connectionId": connection.id,
+                            "amount": amount_to_move,
+                        }
                         movements.append(movement)
 
                         # Update tracking dictionaries
-                        node_daily_outputs[node.id] = node_daily_outputs.get(node.id, 0) + amount_to_move
-                        node_daily_inputs[tank.id] = node_daily_inputs.get(tank.id, 0) + amount_to_move
-                        connection_in_transit[connection.id] = connection_in_transit.get(connection.id, 0) + amount_to_move
+                        node_daily_outputs[node.id] = (
+                            node_daily_outputs.get(node.id, 0) + amount_to_move
+                        )
+                        node_daily_inputs[tank.id] = (
+                            node_daily_inputs.get(tank.id, 0) + amount_to_move
+                        )
+                        connection_in_transit[connection.id] = (
+                            connection_in_transit.get(connection.id, 0) + amount_to_move
+                        )
 
                         # Schedule arrival
                         arrival_day = self.current_day + connection.lead_time_days
-                        self.in_transit_movements.append({
-                            "from_id": node.id,
-                            "to_id": tank.id,
-                            "amount": amount_to_move,
-                            "arrival_day": arrival_day
-                        })
+                        self.in_transit_movements.append(
+                            {
+                                "from_id": node.id,
+                                "to_id": tank.id,
+                                "amount": amount_to_move,
+                                "arrival_day": arrival_day,
+                            }
+                        )
 
                         # Update stocks
                         node.stock -= amount_to_move
@@ -841,7 +941,11 @@ class SolutionAPI:
             earliest_arrival_day = self.current_day + min_lead_time
 
             # Check if the demand can be delivered within its delivery window
-            if demand.start_delivery_day <= earliest_arrival_day <= demand.end_delivery_day:
+            if (
+                demand.start_delivery_day
+                <= earliest_arrival_day
+                <= demand.end_delivery_day
+            ):
                 demands_to_fulfill.append(demand)
 
         # For each demand, plan movements from sources to customer
@@ -866,9 +970,16 @@ class SolutionAPI:
                     break
 
                 # Calculate available capacities
-                connection_available_capacity = connection.max_capacity - connection_in_transit.get(connection.id, 0)
-                source_available_output = getattr(source_node, 'max_output', float('inf')) - node_daily_outputs.get(source_node.id, 0)
-                customer_available_input = customer.max_input - node_daily_inputs.get(customer.id, 0)
+                connection_available_capacity = (
+                    connection.max_capacity
+                    - connection_in_transit.get(connection.id, 0)
+                )
+                source_available_output = getattr(
+                    source_node, "max_output", float("inf")
+                ) - node_daily_outputs.get(source_node.id, 0)
+                customer_available_input = customer.max_input - node_daily_inputs.get(
+                    customer.id, 0
+                )
                 source_stock = source_node.stock
 
                 amount_to_move = min(
@@ -876,7 +987,7 @@ class SolutionAPI:
                     connection_available_capacity,
                     source_available_output,
                     customer_available_input,
-                    source_stock
+                    source_stock,
                 )
 
                 if amount_to_move <= 0:
@@ -887,18 +998,26 @@ class SolutionAPI:
                 movements.append(movement)
 
                 # Update tracking dictionaries
-                node_daily_outputs[source_node.id] = node_daily_outputs.get(source_node.id, 0) + amount_to_move
-                node_daily_inputs[customer.id] = node_daily_inputs.get(customer.id, 0) + amount_to_move
-                connection_in_transit[connection.id] = connection_in_transit.get(connection.id, 0) + amount_to_move
+                node_daily_outputs[source_node.id] = (
+                    node_daily_outputs.get(source_node.id, 0) + amount_to_move
+                )
+                node_daily_inputs[customer.id] = (
+                    node_daily_inputs.get(customer.id, 0) + amount_to_move
+                )
+                connection_in_transit[connection.id] = (
+                    connection_in_transit.get(connection.id, 0) + amount_to_move
+                )
 
                 # Schedule arrival
                 arrival_day = self.current_day + connection.lead_time_days
-                self.in_transit_movements.append({
-                    "from_id": source_node.id,
-                    "to_id": customer.id,
-                    "amount": amount_to_move,
-                    "arrival_day": arrival_day
-                })
+                self.in_transit_movements.append(
+                    {
+                        "from_id": source_node.id,
+                        "to_id": customer.id,
+                        "amount": amount_to_move,
+                        "arrival_day": arrival_day,
+                    }
+                )
 
                 # Update stocks
                 source_node.stock -= amount_to_move
@@ -906,7 +1025,9 @@ class SolutionAPI:
                 demand.remaining_quantity -= amount_to_move
 
         # Remove demands that have been fully fulfilled
-        self.pending_demands = [d for d in self.pending_demands if d.remaining_quantity > 0]
+        self.pending_demands = [
+            d for d in self.pending_demands if d.remaining_quantity > 0
+        ]
 
         return movements
 
@@ -929,7 +1050,7 @@ class SolutionAPI:
             self.send_play_status(self.session_id, self.current_day, movements)
 
             # Update internal state for next day
-            self.update_internal_state(movements) 
+            self.update_internal_state(movements)
 
             # time.sleep(5)
 
@@ -948,6 +1069,7 @@ class SolutionAPI:
 if __name__ == "__main__":
     # Check if the script is running with the Flask reloader
     import os
+
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         # This block will only run once, when the reloader is not active
         simple_api = Extractor()
@@ -955,9 +1077,9 @@ if __name__ == "__main__":
         simple_api.process_everything()
         radu_api = SolutionAPI(simple_api)
         logging.basicConfig(level=logging.DEBUG)
-        
+
         # Run the simulation only once
         radu_api.run_simulation()
-    
+
     # Start the Flask app
     app.run(port=5000, debug=True)
