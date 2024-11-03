@@ -12,12 +12,13 @@ import random
 from datetime import datetime, timedelta
 import json
 from pprint import pp
+import networkx as nx
 
 
 ##################
 # Define Constants
 ##################
-ROOT_PATH = "./Backend/challenge/eval-platform/src/main/resources/liquibase/data"
+ROOT_PATH = "../challenge/eval-platform/src/main/resources/liquibase/data"
 CONNECTIONS_PATH = ROOT_PATH + "/connections.csv"
 CUSTOMERS_PATH = ROOT_PATH + "/customers.csv"
 DEMANDS_PATH = ROOT_PATH + "/demands.csv"
@@ -433,14 +434,14 @@ class SolutionAPI:
             "Content-Type": "application/json",
         }
         # Prepare the payload with an empty movement for the first request
-        delivery_data = {"day": day, "movements": []}
+        delivery_data = {"day": day, "movements": movements}
         try:
             response = requests.post(api_url, json=delivery_data, headers=headers)
             response.raise_for_status()  # Raise an error for bad responses
             logging.info("Delivery status sent successfully.")
 
             if (day == self.NUMBER_OF_DAYS - 1):
-                # pp("TOTAL KPIS: ", response.json())
+                print("TOTAL KPIS: ", response.json())
                 total_cost = response.json()["totalKpis"]["cost"]
                 total_co2 = response.json()["totalKpis"]["co2"]
                 print(f"--------- TOTAL COST: {total_cost} ---------")
@@ -526,59 +527,256 @@ class SolutionAPI:
         possible_sources.sort(key=lambda x: x[1].distance)
         return possible_sources
 
-    # INCOMPLETE
-    def plan_movements(self):
-        # Simple heuristic: For each pending demand within delivery window, plan movements from closest storage tank
+    def get_min_lead_time(self, customer):
+        """
+        Returns the minimum lead time from any source to the customer.
+        """
+        min_lead_time = float('inf')
+        for node in self.nodes_map.values():
+            for neighbour, connection in zip(node.neighbours, node.connections):
+                if neighbour.id == customer.id:
+                    if connection.lead_time_days < min_lead_time:
+                        min_lead_time = connection.lead_time_days
+        return min_lead_time if min_lead_time != float('inf') else 0
+
+
+    def maximum_flow(self, G, source, sink):
+        """
+        Computes the maximum flow in the network G from source to sink.
+        """
+
+        # Use Edmonds-Karp algorithm for maximum flow
+        max_flow_value, flow_dict = nx.maximum_flow(G, source, sink, flow_func=nx.algorithms.flow.edmonds_karp)
+        return max_flow_value, flow_dict
+
+
+    def flow_to_movements(self, flow_dict, node_daily_outputs, node_daily_inputs, connection_in_transit):
+        """
+        Converts the flow dictionary into a list of movements, considering capacities and constraints.
+        """
         movements = []
 
-        # Filter demands that need to be fulfilled
-        demands_to_fulfill = [
-            d
-            for d in self.pending_demands
-            if d.remaining_quantity > 0
-            and d.start_delivery_day <= self.current_day + 3 <= d.end_delivery_day
-        ]
+        # Iterate over the flow_dict to create movements
+        for from_node_id, to_nodes in flow_dict.items():
+            if from_node_id in ['source', 'sink']:
+                continue
+            for to_node_id, flow_amount in to_nodes.items():
+                if flow_amount > 0 and to_node_id not in ['source', 'sink']:
+                    connection_id = self.get_connection_id(from_node_id, to_node_id)
+                    if connection_id is None:
+                        continue  # Invalid connection
 
-        for demand in demands_to_fulfill:
-            customer = self.nodes_map[demand.customer_id]
-            # Find the closest storage tank or refinery
-            possible_sources = self.find_possible_sources(customer)
-            if not possible_sources:
-                continue  # No source available
+                    connection = self.connections_map[connection_id]
+                    from_node = self.nodes_map[from_node_id]
+                    to_node = self.nodes_map[to_node_id]
 
-            source_node, connection = possible_sources[
-                0
-            ]  # Choose the first one (closest)
+                    # Check capacities and constraints
+                    available_output = getattr(from_node, 'max_output', float('inf')) - node_daily_outputs.get(from_node_id, 0)
+                    available_input = getattr(to_node, 'max_input', float('inf')) - node_daily_inputs.get(to_node_id, 0)
+                    to_node_available_capacity = getattr(to_node, 'capacity', float('inf')) - to_node.stock
+                    conn_available_capacity = connection.max_capacity - connection_in_transit.get(connection_id, 0)
 
-            # Amount to move
-            amount_to_move = min(
-                demand.remaining_quantity, source_node.stock, customer.max_input
-            )
-            if amount_to_move <= 0:
-                continue  # Can't move anything
+                    amount_to_move = min(
+                        flow_amount,
+                        available_output,
+                        available_input,
+                        to_node_available_capacity,
+                        conn_available_capacity
+                    )
 
-            # Create movement
-            movement = {"connectionId": connection.id, "amount": amount_to_move}
-            movements.append(movement)
+                    if amount_to_move <= 0:
+                        continue  # Cannot move any amount without violating constraints
 
-            # Update source stock
-            source_node.stock -= amount_to_move
+                    # Update tracking dictionaries
+                    node_daily_outputs[from_node_id] = node_daily_outputs.get(from_node_id, 0) + amount_to_move
+                    node_daily_inputs[to_node_id] = node_daily_inputs.get(to_node_id, 0) + amount_to_move
+                    connection_in_transit[connection_id] = connection_in_transit.get(connection_id, 0) + amount_to_move
 
-            # Schedule arrival
-            arrival_day = self.current_day + connection.lead_time_days
-            self.in_transit_movements.append(
-                {
-                    "from_id": source_node.id,
-                    "to_id": customer.id,
-                    "amount": amount_to_move,
-                    "arrival_day": arrival_day,
-                }
-            )
+                    # Create movement
+                    movement = {"connectionId": connection_id, "amount": amount_to_move}
+                    movements.append(movement)
 
-            # Update demand
-            demand.remaining_quantity -= amount_to_move
+                    # Schedule arrival
+                    arrival_day = self.current_day + connection.lead_time_days
+                    self.in_transit_movements.append({
+                        "from_id": from_node_id,
+                        "to_id": to_node_id,
+                        "amount": amount_to_move,
+                        "arrival_day": arrival_day
+                    })
+
+                    # Update stocks
+                    from_node.stock -= amount_to_move
 
         return movements
+
+    def build_flow_network(self, connection_in_transit, node_daily_outputs, node_daily_inputs):
+        """
+        Builds a flow network for the maximum flow algorithm, incorporating storage tanks.
+        """
+        import networkx as nx
+
+        G = nx.DiGraph()
+
+        # Add nodes
+        G.add_node('source')
+        G.add_node('sink')
+        for node in self.nodes_map.values():
+            G.add_node(node.id)
+
+        # Add edges from source to refineries
+        for refinery in [n for n in self.nodes_map.values() if isinstance(n, Refinery)]:
+            # Update refinery stock with daily production
+            refinery.stock += refinery.production
+
+            # Calculate available output capacity
+            available_output = refinery.max_output - node_daily_outputs.get(refinery.id, 0)
+            # Capacity is the minimum of available output and available stock
+            available_stock = refinery.stock
+            capacity = min(available_output, available_stock)
+            if capacity > 0:
+                G.add_edge('source', refinery.id, capacity=capacity)
+
+        # Add edges between nodes (refineries, storage tanks, customers)
+        for node in self.nodes_map.values():
+            for neighbour, connection in zip(node.neighbours, node.connections):
+                # Calculate available capacities
+                conn_available_capacity = connection.max_capacity - connection_in_transit.get(connection.id, 0)
+                if conn_available_capacity <= 0:
+                    continue  # No capacity left on connection
+
+                node_available_output = getattr(node, 'max_output', float('inf')) - node_daily_outputs.get(node.id, 0)
+                neighbour_available_input = getattr(neighbour, 'max_input', float('inf')) - node_daily_inputs.get(neighbour.id, 0)
+                neighbour_available_capacity = getattr(neighbour, 'capacity', float('inf')) - neighbour.stock
+
+                capacity = min(
+                    conn_available_capacity,
+                    node_available_output,
+                    neighbour_available_input,
+                    neighbour_available_capacity
+                )
+                if capacity > 0:
+                    G.add_edge(node.id, neighbour.id, capacity=capacity)
+
+        # Add edges from customers to sink
+        for customer in [n for n in self.nodes_map.values() if isinstance(n, Customer)]:
+            # Demand is sum of remaining quantities for the customer within delivery window
+            total_demand = sum(
+                d.remaining_quantity for d in self.pending_demands
+                if d.customer_id == customer.id and
+                d.start_delivery_day <= self.current_day + self.get_min_lead_time(customer) <= d.end_delivery_day
+            )
+            if total_demand > 0:
+                G.add_edge(customer.id, 'sink', capacity=total_demand)
+
+        return G
+
+    def get_connection_id(self, from_id, to_id):
+        """
+        Retrieves the connection ID between two nodes.
+        """
+        for conn_id, connection in self.connections_map.items():
+            if connection.from_id == from_id and connection.to_id == to_id:
+                return conn_id
+        return None
+
+
+    def plan_movements(self):
+        """
+        Plan movements for the current day, ensuring that:
+        - No penalties are incurred at the end of the day.
+        - Movements are scheduled only to prevent refinery overflows.
+        - Movements are only scheduled if they can be executed without causing penalties.
+        """
+        movements = []
+
+        # Initialize tracking dictionaries
+        node_daily_outputs = {}  # Key: node ID, Value: total output scheduled for the day
+        node_daily_inputs = {}   # Key: node ID, Value: total input scheduled for the day
+        connection_in_transit = {}  # Key: connection ID, Value: total amount in transit
+
+        # Update with existing in-transit movements
+        for movement in self.in_transit_movements:
+            from_id = movement["from_id"]
+            node_daily_outputs[from_id] = node_daily_outputs.get(from_id, 0) + movement["amount"]
+
+            to_id = movement["to_id"]
+            node_daily_inputs[to_id] = node_daily_inputs.get(to_id, 0) + movement["amount"]
+
+            connection_id = self.get_connection_id(from_id, to_id)
+            if connection_id:
+                connection_in_transit[connection_id] = connection_in_transit.get(connection_id, 0) + movement["amount"]
+
+        # Process refineries to prevent overflows
+        for node in self.nodes_map.values():
+            if isinstance(node, Refinery):
+                # Increase stock by production
+                node.stock += node.production
+
+                # Check for potential overflow
+                if node.stock > node.capacity:
+                    overflow_amount = node.stock - node.capacity
+
+                    # Attempt to move overflow to connected storage tanks
+                    possible_tanks = [
+                        (neighbour, connection)
+                        for neighbour, connection in zip(node.neighbours, node.connections)
+                        if isinstance(neighbour, StorageTank)
+                    ]
+
+                    for tank, connection in possible_tanks:
+                        # Calculate available capacities
+                        tank_available_capacity = tank.capacity - tank.stock
+                        connection_available_capacity = connection.max_capacity - connection_in_transit.get(connection.id, 0)
+                        node_available_output = node.max_output - node_daily_outputs.get(node.id, 0)
+                        tank_available_input = tank.max_input - node_daily_inputs.get(tank.id, 0)
+
+                        # Determine the maximum amount we can move without causing penalties
+                        amount_to_move = min(
+                            overflow_amount,
+                            tank_available_capacity,
+                            connection_available_capacity,
+                            node_available_output,
+                            tank_available_input
+                        )
+
+                        if amount_to_move <= 0:
+                            continue  # Cannot move any amount without causing penalties
+
+                        # Create movement
+                        movement = {"connectionId": connection.id, "amount": amount_to_move}
+                        movements.append(movement)
+
+                        # Update tracking dictionaries
+                        node_daily_outputs[node.id] = node_daily_outputs.get(node.id, 0) + amount_to_move
+                        node_daily_inputs[tank.id] = node_daily_inputs.get(tank.id, 0) + amount_to_move
+                        connection_in_transit[connection.id] = connection_in_transit.get(connection.id, 0) + amount_to_move
+
+                        # Schedule arrival
+                        arrival_day = self.current_day + connection.lead_time_days
+                        self.in_transit_movements.append({
+                            "from_id": node.id,
+                            "to_id": tank.id,
+                            "amount": amount_to_move,
+                            "arrival_day": arrival_day
+                        })
+
+                        # Update stocks
+                        node.stock -= amount_to_move
+                        overflow_amount -= amount_to_move
+
+                        if overflow_amount <= 0:
+                            break  # Overflow has been handled
+
+                # Ensure refinery stock does not exceed capacity
+                if node.stock > node.capacity:
+                    # Even after attempting to move excess, overflow remains
+                    # Set stock to capacity to prevent further penalties
+                    node.stock = node.capacity
+
+        # No further movements to be scheduled to avoid penalties
+        return movements
+
 
     def optimize(self):
         # Main loop for each day
