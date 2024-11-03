@@ -23,7 +23,7 @@ import csv
 ##################
 # Define Constants
 ##################
-ROOT_PATH = "../challenge/eval-platform/src/main/resources/liquibase/data"
+ROOT_PATH = "./Backend/challenge/eval-platform/src/main/resources/liquibase/data"
 CONNECTIONS_PATH = ROOT_PATH + "/connections.csv"
 CUSTOMERS_PATH = ROOT_PATH + "/customers.csv"
 DEMANDS_PATH = ROOT_PATH + "/demands.csv"
@@ -598,7 +598,6 @@ class SolutionAPI:
                         min_lead_time = connection.lead_time_days
         return min_lead_time if min_lead_time != float('inf') else 0
 
-
     def maximum_flow(self, G, source, sink):
         """
         Computes the maximum flow in the network G from source to sink.
@@ -607,7 +606,6 @@ class SolutionAPI:
         # Use Edmonds-Karp algorithm for maximum flow
         max_flow_value, flow_dict = nx.maximum_flow(G, source, sink, flow_func=nx.algorithms.flow.edmonds_karp)
         return max_flow_value, flow_dict
-
 
     def flow_to_movements(self, flow_dict, node_daily_outputs, node_daily_inputs, connection_in_transit):
         """
@@ -738,7 +736,6 @@ class SolutionAPI:
             if connection.from_id == from_id and connection.to_id == to_id:
                 return conn_id
         return None
-
 
     def plan_movements(self):
         """
@@ -913,8 +910,6 @@ class SolutionAPI:
 
         return movements
 
-
-
     def optimize(self):
         # Main loop for each day
         for day in range(self.NUMBER_OF_DAYS):
@@ -936,7 +931,7 @@ class SolutionAPI:
             # Update internal state for next day
             self.update_internal_state(movements) 
 
-            # time.sleep(5)               
+            # time.sleep(5)
 
     # Main simulation loop
     def run_simulation(self):
@@ -951,10 +946,18 @@ class SolutionAPI:
 
 
 if __name__ == "__main__":
-    simple_api = Extractor()
-    simple_api.parse_csv_info()
-    simple_api.process_everything()
-    radu_api = SolutionAPI(simple_api)
-    logging.basicConfig(level=logging.DEBUG)
-    radu_api.run_simulation()
+    # Check if the script is running with the Flask reloader
+    import os
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        # This block will only run once, when the reloader is not active
+        simple_api = Extractor()
+        simple_api.parse_csv_info()
+        simple_api.process_everything()
+        radu_api = SolutionAPI(simple_api)
+        logging.basicConfig(level=logging.DEBUG)
+        
+        # Run the simulation only once
+        radu_api.run_simulation()
+    
+    # Start the Flask app
     app.run(port=5000, debug=True)
