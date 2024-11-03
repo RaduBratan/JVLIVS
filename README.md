@@ -1,4 +1,4 @@
-People who worked on this project (my not appear in commits for unknown reasons):
+People who worked on this project (may not appear in commits for unknown reasons):
 - [Eduard Cristea](https://github.com/edyc24/)
 - [Alexandru Petrescu](https://github.com/alantpetrescu/)
 - [Radu Bratan](https://github.com/RaduBratan/)
