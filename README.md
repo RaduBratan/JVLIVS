@@ -3,6 +3,8 @@ People who worked on this project (may not appear in commits for unknown reasons
 - [Alexandru Petrescu](https://github.com/alantpetrescu/)
 - [Radu Bratan](https://github.com/RaduBratan/)
 
+Note that `alex.py` is the only Python file with the correct solution. We will remove the redundant ones soon.
+
 
 # Backend application for rating the challenge of SmartHacks 2024 hackaton
 
