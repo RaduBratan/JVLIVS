@@ -1,0 +1,368 @@
+<databaseChangeLog
+	xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext"
+	xmlns:pro="http://www.liquibase.org/xml/ns/pro"
+	xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd
+						http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd"
+	logicalFilePath="db.changelog.xml"
+>
+
+	<changeSet id="initial-0001" author="r">
+		<createTable tableName="team">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="team-pk" />
+			</column>
+			<column name="color" type="VARCHAR(7)">
+				<constraints nullable="true" />
+			</column>
+			<column name="name" type="VARCHAR(255)">
+				<constraints nullable="false" />
+			</column>
+			<column name="api_key" type="UUID">
+				<constraints nullable="false" />
+			</column>
+			<column name="internal_use" type="BOOLEAN">
+				<constraints nullable="false" />
+			</column>
+		</createTable>
+	</changeSet>
+
+	<changeSet id="initial-0002" author="r">
+		<loadData tableName="team" file="classpath:/liquibase/data/teams.csv"
+			separator=";" />
+	</changeSet>
+
+	<changeSet id="initial-0003" author="r">
+		<createTable tableName="eval_session">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="eval_session-pk" />
+			</column>
+			<column name="team_id" type="UUID">
+				<constraints nullable="false" referencedTableName="team"
+					referencedColumnNames="id"
+					foreignKeyName="eval_session_team_fk" />
+			</column>
+			<column name="current_day" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="start_time" type="TIMESTAMP">
+				<constraints nullable="false" />
+			</column>
+			<column name="end_time" type="TIMESTAMP">
+			</column>
+			<column name="cost_value" type="LONG">
+				<constraints nullable="false" />
+			</column>
+			<column name="co2_value" type="LONG">
+				<constraints nullable="false" />
+			</column>
+		</createTable>
+	</changeSet>
+
+	<changeSet id="initial-0004" author="r">
+		<createTable tableName="network_node">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="network_node-fk" />
+			</column>
+			<column name="name" type="VARCHAR(255)">
+				<constraints nullable="false" />
+			</column>
+			<column name="capacity" type="LONG">
+			</column>
+			<column name="max_output" type="LONG">
+			</column>
+			<column name="max_input" type="LONG">
+			</column>
+			<column name="production" type="LONG">
+			</column>
+			<column name="overflow_penalty" type="DOUBLE">
+			</column>
+			<column name="underflow_penalty" type="DOUBLE">
+			</column>
+			<column name="over_output_penalty" type="DOUBLE">
+			</column>
+			<column name="over_input_penalty" type="DOUBLE">
+			</column>
+			<column name="production_cost" type="DOUBLE">
+			</column>
+			<column name="production_co2" type="DOUBLE">
+			</column>
+			<column name="late_delivery_penalty" type="DOUBLE">
+			</column>
+			<column name="early_delivery_penalty" type="DOUBLE">
+			</column>
+			<column name="initial_stock" type="LONG"></column>
+			<column name="node_type" type="varchar(255)"></column>
+
+		</createTable>
+
+	</changeSet>
+
+	<changeSet id="initial-0005" author="r">
+		<createTable tableName="network_connection">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="network_connection-fk" />
+			</column>
+			<column name="from_node_id" type="UUID">
+				<constraints nullable="false" referencedTableName="network_node"
+					referencedColumnNames="id"
+					foreignKeyName="network_connection_from_node_fk" />
+			</column>
+			<column name="to_node_id" type="UUID">
+				<constraints nullable="false" referencedTableName="network_node"
+					referencedColumnNames="id"
+					foreignKeyName="network_connection_to_node_fk" />
+			</column>
+			<column name="distance" type="LONG">
+				<constraints nullable="false" />
+			</column>
+			<column name="lead_time_days" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="connection_type" type="VARCHAR(50)">
+				<constraints nullable="false" />
+			</column>
+			<column name="max_capacity" type="LONG">
+			</column>
+		</createTable>
+	</changeSet>
+
+	<changeSet id="initial-0006" author="r">
+		<createTable tableName="node_status">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="node_status-pk" />
+			</column>
+			<column name="session_id" type="UUID">
+				<constraints nullable="false" referencedTableName="eval_session"
+					referencedColumnNames="id"
+					foreignKeyName="node_status_session_fk" />
+			</column>
+			<column name="node_id" type="UUID">
+				<constraints nullable="false" referencedTableName="network_node"
+					referencedColumnNames="id"
+					foreignKeyName="node_status_node_fk" />
+			</column>
+			<column name="stock" type="LONG">
+			</column>
+			<column name="cost" type="DOUBLE">
+				<constraints nullable="false" />
+			</column>
+			<column name="co2" type="DOUBLE">
+				<constraints nullable="false" />
+			</column>
+		</createTable>
+	</changeSet>
+
+
+	<changeSet id="initial-0007" author="r">
+		<createTable tableName="requested_movement">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="requested_movement-pk" />
+			</column>
+			<column name="session_id" type="UUID">
+				<constraints nullable="false" referencedTableName="eval_session"
+					referencedColumnNames="id"
+					foreignKeyName="requested_movement_session_fk" />
+			</column>
+			<column name="connection_id" type="UUID">
+				<constraints nullable="false"
+					referencedTableName="network_connection"
+					referencedColumnNames="id"
+					foreignKeyName="requested_movement_connection_fk" />
+			</column>
+			<column name="from_id" type="UUID">
+				<constraints nullable="false" referencedTableName="node_status"
+					referencedColumnNames="id"
+					foreignKeyName="requested_movement_from_fk" />
+			</column>
+			<column name="to_id" type="UUID">
+				<constraints nullable="false" referencedTableName="node_status"
+					referencedColumnNames="id"
+					foreignKeyName="requested_movement_to_fk" />
+			</column>
+			<column name="amount" type="LONG">
+				<constraints nullable="false" />
+			</column>
+			<column name="day_posted" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="day_delivered" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="cost" type="DOUBLE">
+			</column>
+			<column name="co2" type="DOUBLE">
+			</column>
+		</createTable>
+	</changeSet>
+
+
+	<changeSet id="initial-0008" author="r">
+		<createTable tableName="penalty">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="penalty-pk" />
+			</column>
+			<column name="session_id" type="UUID">
+				<constraints nullable="false" referencedTableName="eval_session"
+					referencedColumnNames="id"
+					foreignKeyName="penalty_session_fk" />
+			</column>
+			<column name="penalty_type" type="VARCHAR(255)">
+			</column>
+			<column name="node_id" type="UUID">
+				<constraints nullable="true" referencedTableName="network_node"
+					referencedColumnNames="id" foreignKeyName="penalty_node_fk" />
+			</column>
+			<column name="movement_id" type="UUID">
+				<constraints nullable="true"
+					referencedTableName="requested_movement"
+					referencedColumnNames="id"
+					foreignKeyName="penalty_movement_fk" />
+			</column>
+			<column name="co2" type="DOUBLE">
+			</column>
+			<column name="cost" type="DOUBLE">
+			</column>
+			<column name="issued_day" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="message" type="VARCHAR(2000)">
+			</column>
+			<column name="processed" type="BOOLEAN">
+				<constraints nullable="false" />
+			</column>
+		</createTable>
+	</changeSet>
+
+
+	<changeSet id="initial-0009" author="r">
+		<createTable tableName="demand">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="demand-pk" />
+			</column>
+			<column name="customer_id" type="UUID">
+				<constraints nullable="false" referencedTableName="network_node"
+					referencedColumnNames="id"
+					foreignKeyName="demand_customer_fk" />
+			</column>
+			<column name="quantity" type="LONG">
+				<constraints nullable="false" />
+			</column>
+			<column name="post_day" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="start_delivery_day" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="end_delivery_day" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+		</createTable>
+	</changeSet>
+
+	<changeSet id="initial-0010" author="r">
+		<createTable tableName="demand_status">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="demand_status-pk" />
+			</column>
+			<column name="session_id" type="UUID">
+				<constraints nullable="false" referencedTableName="eval_session"
+					referencedColumnNames="id"
+					foreignKeyName="demand_status_session_fk" />
+			</column>
+			<column name="demand_id" type="UUID">
+				<constraints nullable="false" referencedTableName="demand"
+					referencedColumnNames="id"
+					foreignKeyName="demand_status_demand_fk" />
+			</column>
+			<column name="node_status_id" type="UUID">
+				<constraints nullable="false" referencedTableName="node_status"
+					referencedColumnNames="id"
+					foreignKeyName="demand_status_node_status_fk" />
+			</column>
+			<column name="remaining_quantity" type="LONG">
+			</column>
+		</createTable>
+	</changeSet>
+
+	<changeSet id="initial-0011" author="r">
+		<createTable tableName="eval_track">
+			<column name="id" type="UUID">
+				<constraints primaryKey="true" nullable="false"
+					primaryKeyName="eval_track-pk" />
+			</column>
+			<column name="team_id" type="UUID">
+				<constraints nullable="false" referencedTableName="team"
+							 referencedColumnNames="id"
+							 foreignKeyName="eval_track_team_fk" />
+			</column>
+			<column name="prod_Day" type="INTEGER" />
+			<column name="production_Cost" type="DOUBLE" />
+			<column name="production_Co2" type="DOUBLE" />
+			<column name="movement_Cost" type="DOUBLE" />
+			<column name="movement_Co2" type="DOUBLE" />
+			<column name="penalty_Cost" type="DOUBLE" />
+			<column name="penalty_Co2" type="DOUBLE" />
+		</createTable>
+	</changeSet>
+
+	<changeSet id="load-0001" author="r" context="local">
+		<loadData tableName="network_node" separator=";"
+			file="classpath:/liquibase/data/customers.csv">
+			<column name="node_type" defaultValue="CUSTOMER" />
+		</loadData>
+	</changeSet>
+
+	<changeSet id="load-0002" author="r" context="local">
+		<loadData tableName="network_node" separator=";"
+			file="classpath:/liquibase/data/refineries.csv">
+			<column name="node_type" defaultValue="REFINERY" />
+		</loadData>
+	</changeSet>
+
+	<changeSet id="load-0003" author="r" context="local">
+		<loadData tableName="network_node" separator=";"
+			file="classpath:/liquibase/data/tanks.csv">
+			<column name="node_type" defaultValue="STORAGE_TANK" />
+		</loadData>
+	</changeSet>
+
+	<changeSet id="load-0004" author="r" context="local">
+		<loadData tableName="network_connection" separator=";"
+			file="classpath:/liquibase/data/connections.csv">
+			<column name="from_node_id" header="from_id" />
+			<column name="to_node_id" header="to_id" />
+		</loadData>
+	</changeSet>
+
+	<changeSet id="load-0005" author="r" context="local">
+		<loadData tableName="demand" separator=";"
+			file="classpath:/liquibase/data/demands.csv"></loadData>
+	</changeSet>
+
+	<changeSet id="update-0001" author="r" >
+		<addColumn tableName="eval_track">
+			<column name="session_id" type="UUID" />
+			<column name="latest" type="boolean" defaultValueBoolean="false" />
+			<column name="time_received" type="timestamp" />
+		</addColumn>
+	</changeSet>
+
+	<changeSet id="update-0002" author="r">
+		<addColumn tableName="eval_session">
+			<column name="last_updated" type="timestamp" />
+		</addColumn>
+	</changeSet>
+
+
+</databaseChangeLog>
